@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simulatore Vulcanico Professionale</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #010103;
+            color: #e0e0e0;
+            font-family: 'Inter', sans-serif;
+        }
+        canvas {
+            display: block;
+            touch-action: none;
+        }
+        .ui-panel {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(10, 10, 15, 0.9);
+            padding: 24px;
+            border-radius: 16px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            backdrop-filter: blur(15px);
+            width: 320px;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.8);
+            z-index: 100;
+        }
+        input[type=range] {
+            width: 100%;
+            height: 4px;
+            background: #222;
+            border-radius: 5px;
+            appearance: none;
+            outline: none;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            background: #ff4d00;
+            border-radius: 50%;
+            cursor: pointer;
+            border: 2px solid #fff;
+        }
+        .stats-badge {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.6);
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 11px;
+            border: 1px solid rgba(255,255,255,0.1);
+            letter-spacing: 1px;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="ui-panel space-y-5">
+        <div>
+            <h1 class="text-xl font-black tracking-tighter text-orange-500 uppercase italic">Volcano Sim Pro</h1>
+            <p class="text-[10px] text-gray-500 uppercase tracking-widest">Advanced Geophysical Engine</p>
+        </div>
+        
+        <div class="space-y-4">
+            <div>
+                <div class="flex justify-between text-[10px] mb-1 uppercase font-bold text-gray-400">
+                    <span>Pressione Magmatica</span>
+                    <span id="intVal" class="text-orange-400">60</span>
+                </div>
+                <input type="range" id="intensity" min="0" max="150" value="60">
+            </div>
+
+            <div>
+                <div class="flex justify-between text-[10px] mb-1 uppercase font-bold text-gray-400">
+                    <span>Frequenza Lapilli</span>
+                    <span id="sparkVal" class="text-orange-400">30</span>
+                </div>
+                <input type="range" id="sparkFreq" min="0" max="100" value="30">
+            </div>
+
+            <div>
+                <div class="flex justify-between text-[10px] mb-1 uppercase font-bold text-gray-400">
+                    <span>Viscosità</span>
+                    <span id="viscVal" class="text-orange-400">4</span>
+                </div>
+                <input type="range" id="viscosity" min="1" max="10" value="4">
+            </div>
+
+            <div>
+                <div class="flex justify-between text-[10px] mb-1 uppercase font-bold text-gray-400">
+                    <span>Vento Laterale</span>
+                    <span id="windVal" class="text-orange-400">0.5</span>
+                </div>
+                <input type="range" id="wind" min="-8" max="8" step="0.2" value="0.5">
+            </div>
+        </div>
+
+        <button id="eruptionBtn" class="w-full bg-orange-600 hover:bg-orange-500 text-white text-[11px] font-black py-3 rounded shadow-inner uppercase tracking-widest transition-all">
+            Innesca Eruzione Massima
+        </button>
+    </div>
+
+    <div class="stats-badge" id="stats">PARTICELLE: 0</div>
+
+    <canvas id="volcanoCanvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('volcanoCanvas');
+        const ctx = canvas.getContext('2d');
+        const statsDisplay = document.getElementById('stats');
+
+        const intensityInput = document.getElementById('intensity');
+        const sparkFreqInput = document.getElementById('sparkFreq');
+        const viscosityInput = document.getElementById('viscosity');
+        const windInput = document.getElementById('wind');
+        const eruptionBtn = document.getElementById('eruptionBtn');
+
+        const intValDisp = document.getElementById('intVal');
+        const sparkValDisp = document.getElementById('sparkVal');
+        const viscValDisp = document.getElementById('viscVal');
+        const windValDisp = document.getElementById('windVal');
+
+        let width, height;
+        let particles = [];
+        let isMouseDown = false;
+        
+        function init() {
+            resize();
+            animate();
+        }
+
+        function resize() {
+            width = window.innerWidth;
+            height = window.innerHeight;
+            canvas.width = width;
+            canvas.height = height;
+        }
+
+        class Particle {
+            constructor(x, y, type) {
+                this.x = x;
+                this.y = y;
+                this.type = type;
+                
+                const angle = (Math.random() * Math.PI / 2.5) - (Math.PI / 5) - Math.PI / 2;
+                let speed;
+                
+                if (type === 'lava') speed = Math.random() * 7 + 2;
+                else if (type === 'spark') speed = Math.random() * 15 + 8;
+                else speed = Math.random() * 4 + 1;
+
+                this.vx = Math.cos(angle) * speed;
+                this.vy = Math.sin(angle) * speed;
+                
+                this.life = 1.0;
+                this.decay = type === 'spark' ? Math.random() * 0.04 + 0.02 : Math.random() * 0.007 + 0.003;
+                this.gravity = type === 'smoke' ? -0.012 : 0.14;
+                this.size = type === 'smoke' ? Math.random() * 45 + 30 : (type === 'spark' ? Math.random() * 2 + 1 : Math.random() * 5 + 2);
+                
+                if (type === 'lava') {
+                    this.hue = Math.random() * 25 + 5;
+                } else if (type === 'smoke') {
+                    this.lum = Math.random() * 12 + 4;
+                }
+            }
+
+            update() {
+                const wind = parseFloat(windInput.value) * 0.06;
+                const viscosity = 1 - (parseFloat(viscosityInput.value) / 22);
+
+                this.vx += wind;
+                this.vy += this.gravity;
+                
+                if(this.type === 'lava') this.vx *= viscosity;
+
+                this.x += this.vx;
+                this.y += this.vy;
+                this.life -= this.decay;
+
+                if (this.y > height - 80 && this.type !== 'smoke') {
+                    this.y = height - 80;
+                    this.vy *= -0.15;
+                    this.vx *= 0.5;
+                }
+            }
+
+            draw() {
+                const alpha = Math.max(0, this.life);
+                const r = Math.max(0, this.size * this.life);
+                if (r <= 0) return;
+
+                ctx.save();
+                if (this.type === 'lava') {
+                    const grad = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, r * 2);
+                    grad.addColorStop(0, `rgba(255, 255, 255, ${alpha})`);
+                    grad.addColorStop(0.2, `hsla(${this.hue}, 100%, 60%, ${alpha})`);
+                    grad.addColorStop(1, `hsla(${this.hue}, 100%, 20%, 0)`);
+                    ctx.fillStyle = grad;
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, r * 2.5, 0, Math.PI * 2);
+                    ctx.fill();
+                } else if (this.type === 'smoke') {
+                    const grad = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, r);
+                    grad.addColorStop(0, `rgba(${this.lum+5}, ${this.lum+5}, ${this.lum+10}, ${alpha * 0.4})`);
+                    grad.addColorStop(1, `rgba(0, 0, 0, 0)`);
+                    ctx.fillStyle = grad;
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, r, 0, Math.PI * 2);
+                    ctx.fill();
+                } else if (this.type === 'spark') {
+                    ctx.shadowBlur = 10;
+                    ctx.shadowColor = '#fff';
+                    ctx.fillStyle = `rgba(255, 255, 220, ${alpha})`;
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, r, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+                ctx.restore();
+            }
+        }
+
+        function drawEnvironment() {
+            const centerX = width / 2;
+            const baseY = height - 50;
+
+            // Cielo Notturno Profondo
+            const skyGrad = ctx.createLinearGradient(0, 0, 0, height);
+            skyGrad.addColorStop(0, '#010105');
+            skyGrad.addColorStop(0.7, '#050512');
+            skyGrad.addColorStop(1, '#0c0c1a');
+            ctx.fillStyle = skyGrad;
+            ctx.fillRect(0, 0, width, height);
+
+            // Luna riposizionata più in ALTO a DESTRA
+            const moonX = width * 0.88;
+            const moonY = height * 0.12;
+            const moonSize = 35;
+            
+            // Alone lunare soffuso
+            const moonGlow = ctx.createRadialGradient(moonX, moonY, 0, moonX, moonY, 200);
+            moonGlow.addColorStop(0, 'rgba(180, 200, 255, 0.12)');
+            moonGlow.addColorStop(1, 'rgba(0, 0, 0, 0)');
+            ctx.fillStyle = moonGlow;
+            ctx.beginPath();
+            ctx.arc(moonX, moonY, 200, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Disco lunare con leggera texture
+            ctx.fillStyle = '#f0f4ff';
+            ctx.beginPath();
+            ctx.arc(moonX, moonY, moonSize, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Crateri lunari stilizzati
+            ctx.fillStyle = 'rgba(0, 20, 50, 0.04)';
+            ctx.beginPath();
+            ctx.arc(moonX - 8, moonY + 4, 7, 0, Math.PI * 2);
+            ctx.arc(moonX + 10, moonY - 10, 5, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Atmosfera Vulcanica (Glow rosso)
+            const intensity = parseInt(intensityInput.value);
+            if (intensity > 10) {
+                const atmosGrad = ctx.createRadialGradient(centerX, height - 350, 0, centerX, height - 350, intensity * 6);
+                atmosGrad.addColorStop(0, `rgba(255, 40, 0, ${intensity / 700})`);
+                atmosGrad.addColorStop(1, `rgba(0, 0, 0, 0)`);
+                ctx.fillStyle = atmosGrad;
+                ctx.globalCompositeOperation = 'screen';
+                ctx.fillRect(0, 0, width, height);
+                ctx.globalCompositeOperation = 'source-over';
+            }
+
+            // Orizzonte / Terreno
+            ctx.fillStyle = '#030303';
+            ctx.fillRect(0, height - 80, width, 80);
+
+            // Montagna Vulcanica (Dettagliata)
+            ctx.save();
+            
+            // Corpo montagna con curve naturali
+            ctx.beginPath();
+            ctx.moveTo(centerX - 550, height - 80);
+            ctx.bezierCurveTo(centerX - 300, height - 80, centerX - 200, height - 420, centerX - 100, height - 420);
+            ctx.lineTo(centerX + 100, height - 420);
+            ctx.bezierCurveTo(centerX + 200, height - 420, centerX + 300, height - 80, centerX + 550, height - 80);
+            
+            const mountainGrad = ctx.createLinearGradient(centerX, height - 420, centerX, height - 80);
+            mountainGrad.addColorStop(0, '#080808');
+            mountainGrad.addColorStop(0.3, '#18120e');
+            mountainGrad.addColorStop(1, '#040404');
+            ctx.fillStyle = mountainGrad;
+            ctx.fill();
+
+            // Rimbalzo luce lunare fredda sul crinale
+            ctx.strokeStyle = 'rgba(180, 200, 255, 0.07)';
+            ctx.lineWidth = 1;
+            ctx.stroke();
+
+            // Luce riflessa dal magma (Luce calda pulsante)
+            const lightAlpha = Math.min(0.6, intensity / 80);
+            ctx.strokeStyle = `rgba(255, 60, 0, ${lightAlpha})`;
+            for(let i = 0; i < 15; i++) {
+                ctx.beginPath();
+                ctx.moveTo(centerX - 90 + i*13, height - 415);
+                ctx.lineTo(centerX - 140 - i*22, height - 80);
+                ctx.stroke();
+            }
+
+            // Cratere incandescente fotorealistico
+            const craterGrad = ctx.createRadialGradient(centerX, height - 425, 0, centerX, height - 425, 90);
+            craterGrad.addColorStop(0, '#ffffff');
+            craterGrad.addColorStop(0.2, '#fff700');
+            craterGrad.addColorStop(0.5, '#ff4d00');
+            craterGrad.addColorStop(1, 'transparent');
+            ctx.fillStyle = craterGrad;
+            ctx.globalCompositeOperation = 'screen';
+            ctx.beginPath();
+            ctx.ellipse(centerX, height - 420, 95, 22, 0, 0, Math.PI * 2);
+            ctx.fill();
+            
+            ctx.restore();
+        }
+
+        function spawnEruption() {
+            const intensity = parseInt(intensityInput.value);
+            const sparkFreq = parseInt(sparkFreqInput.value);
+            const centerX = width / 2;
+            const volcanoTop = height - 440; // Leggermente più alto per il nuovo profilo
+
+            // Fumo denso volumetrico
+            if (Math.random() < 0.95) {
+                particles.push(new Particle(centerX + (Math.random()-0.5)*100, volcanoTop, 'smoke'));
+            }
+
+            // Flusso di Lava
+            const lavaAmt = Math.floor(intensity / 6);
+            for (let i = 0; i < lavaAmt; i++) {
+                particles.push(new Particle(centerX + (Math.random()-0.5)*80, volcanoTop, 'lava'));
+            }
+
+            // Lapilli esplosivi
+            const sparkAmt = Math.floor(sparkFreq / 8);
+            if (Math.random() * 100 < sparkFreq) {
+                for (let i = 0; i < sparkAmt; i++) {
+                    particles.push(new Particle(centerX + (Math.random()-0.5)*50, volcanoTop, 'spark'));
+                }
+            }
+        }
+
+        function animate() {
+            ctx.clearRect(0,0, width, height);
+            
+            drawEnvironment();
+
+            if (isMouseDown || parseInt(intensityInput.value) > 5 || parseInt(sparkFreqInput.value) > 5) {
+                spawnEruption();
+            }
+
+            // Gestione Particelle con blending differenziato
+            for (let i = particles.length - 1; i >= 0; i--) {
+                const p = particles[i];
+                p.update();
+                
+                if (p.life > 0) {
+                    if (p.type !== 'smoke') {
+                        ctx.globalCompositeOperation = 'screen';
+                    } else {
+                        ctx.globalCompositeOperation = 'source-over';
+                    }
+                    p.draw();
+                } else {
+                    particles.splice(i, 1);
+                }
+            }
+            ctx.globalCompositeOperation = 'source-over';
+
+            // Aggiornamento UI
+            statsDisplay.innerText = `PARTICELLE: ${particles.length.toLocaleString()}`;
+            intValDisp.innerText = intensityInput.value;
+            sparkValDisp.innerText = sparkFreqInput.value;
+            viscValDisp.innerText = viscosityInput.value;
+            windValDisp.innerText = windInput.value;
+
+            requestAnimationFrame(animate);
+        }
+
+        window.addEventListener('resize', resize);
+        canvas.addEventListener('mousedown', () => isMouseDown = true);
+        window.addEventListener('mouseup', () => isMouseDown = false);
+        canvas.addEventListener('touchstart', (e) => { isMouseDown = true; e.preventDefault(); }, {passive: false});
+        window.addEventListener('touchend', () => isMouseDown = false);
+
+        eruptionBtn.addEventListener('click', () => {
+            intensityInput.value = 150;
+            sparkFreqInput.value = 100;
+            setTimeout(() => {
+                intensityInput.value = 60;
+                sparkFreqInput.value = 30;
+            }, 5000);
+        });
+
+        init();
+    </script>
+</body>
+</html>
